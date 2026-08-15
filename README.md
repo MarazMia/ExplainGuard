@@ -72,8 +72,8 @@ Sub-Step 1: Execute the Biased Sampling Attack (or the other variant. Can also c
 
 Sub-Step 2: Run the Pillar I, II, and III Verification Harness
 
-<i> python Pillars_Check/verifier_pillar1.py </i>
-<i> python Pillars_Check/verifier_pillar2.py </i>
-<i> python Pillars_Check/verifier_pillar3.py </i>
+<i> python Pillars_Check/verifier_pillar1.py </i> <br>
+<i> python Pillars_Check/verifier_pillar2.py </i> <br>
+<i> python Pillars_Check/verifier_pillar3.py </i> <br>
 
 
