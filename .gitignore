@@ -1,0 +1,18 @@
+# Python bytecode and cache across all directories
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Generated submission artifacts and audit logs
+Data/Auditor_End/Submissions/*.pkl
+*.log
