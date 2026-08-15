@@ -1,8 +1,8 @@
 # ExplainGuard: Post-Hoc Explanation Auditing & Adversarial Defense Framework
 
-ExplainGuard is a comprehensive security auditing framework designed to detect, evaluate, and defend against adversarial manipulations of post-hoc machine learning explanations (such as SHAP attributions). 
+ExplainGuard is a comprehensive security audit verification framework designed to detect, evaluate, and defend against adversarial manipulations of post-hoc machine learning explanations (such as SHAP attributions). 
 
-Modern ML auditing standards often rely on black-box verification checks to ensure that explanations submitted by auditors or model owners have not been compromised. ExplainGuard implements and tests three major threat models against a multi-pillar verification pipeline:
+Modern ML auditing standards often rely on black-box verification checks to ensure that explanations submitted by auditors have been faithful. ExplainGuard implements and tests three major threat models against a multi-pillar verification pipeline:
 1. **OOD Scaffolding Attack** (Slack et al., AIES 2020)
 2. **Output Shuffling Attack** (Yuan & Dasgupta, AAAI 2024)
 3. **Stealthily Biased Sampling Attack** (Laberge et al., ICLR 2023)
