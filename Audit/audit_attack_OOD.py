@@ -353,8 +353,14 @@ def run_adversarial_audit() -> None:
 
     # Data Splits
     N_BG = 50
-    bg_data = X_audit_test.iloc[:N_BG].to_numpy()
-    explain_data = X_audit_test.iloc[N_BG:].to_numpy()
+    # bg_data = X_audit_test.iloc[:N_BG].to_numpy()
+    # explain_data = X_audit_test.iloc[N_BG:].to_numpy()
+        
+    # random sampling
+    bg_df = X_audit_test.sample(n=N_BG, random_state=0)
+    bg_data = bg_df.to_numpy()
+    
+    explain_data = X_audit_test.loc[X_audit_test.index.difference(bg_df.index)].to_numpy()
     all_real_data = X_audit_test.to_numpy()
 
     # Target Sensitive Features
@@ -480,14 +486,17 @@ def run_adversarial_audit() -> None:
     )
 
     lime_attributions_list = []
+    lime_intercepts = []  # NEW
+    
     for i in range(len(explain_data)):
-        exp = lime_explainer.explain_instance(
-            explain_data[i],
-            predict_fn=predict_wrapper,
-            num_features=len(feature_names),
-            num_samples=500,
-        )
-        lime_attributions_list.append(dict(exp.as_list(label=1)))
+            exp = lime_explainer.explain_instance(
+                explain_data[i],
+                predict_fn=predict_wrapper,
+                num_features=len(feature_names),
+                num_samples=500,
+            )
+            lime_attributions_list.append(dict(exp.as_list(label=1)))
+            lime_intercepts.append(float(exp.intercept[1]))  # NEW: per-instance intercept
 
     lime_df_raw = pd.DataFrame(lime_attributions_list)
     global_lime_importance = lime_df_raw.abs().mean(axis=0)
@@ -514,8 +523,9 @@ def run_adversarial_audit() -> None:
         "explainer_object": lime_explainer,
         "explained_instances": explain_data,
         "attributions": lime_attributions_list,
-        "feature_names": feature_names
-    }
+        "intercepts": lime_intercepts,     # NEW
+        "feature_names": feature_names,
+        }
 
     lime_path = os.path.join(
         SUBMISSION_DIR, f"{ATTACK_PREFIX}{DATASET_NAME}_lime_submission.pkl"

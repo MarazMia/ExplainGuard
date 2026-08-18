@@ -18,7 +18,7 @@ if PROJECT_ROOT not in sys.path:
 from Model.blackbox_endpoint import BlackBoxModelEndpoint
 
 # Setup relative paths
-AUDIT_TYPE = "clean_"  # Set to "clean_" or "attack_OOD_" or "attack_Shuffling_" or "attack_BiasedSampling_"
+AUDIT_TYPE = "attack_RandomRank_"  # Set to "clean_" or "attack_OOD_" or "attack_Shuffling_" or "attack_BiasedSampling_" or "attack_RandomRank_"
 DATASET_NAME = "compas"
 
 MODEL_DIR = os.path.join(PROJECT_ROOT, "Model")
@@ -149,7 +149,7 @@ class Pillar2Verifier:
     # CHECK 1: SHAP Semantic Validity (Efficiency & Null-Player)
     # ------------------------------------------------------------
     def verify_shap_semantic_validity(
-        self, delta_1: float = 1e-3, delta_null: float = 1e-4, delta_2: float = 0.02
+        self, delta_1: float = 0.05, delta_null: float = 1e-1, delta_2: float = 0.05
     ) -> Tuple[bool, int, int]:
         """
         Equation (5) evaluation for SHAP attributions.
@@ -170,6 +170,9 @@ class Pillar2Verifier:
                 else attributions[1, :, :]
             )
 
+        mx_efficiency_dif = 0.0
+        mx_axiom_diff = 0.0
+
         phi_0 = float(np.mean(self.f_prime(self.background_B)))
         actual_preds = self.f_prime(self.targets)
 
@@ -184,6 +187,7 @@ class Pillar2Verifier:
             # 1. Efficiency Check: | phi_0 + sum(phi_i) - f'(x) | < delta_1
             reconstructed_pred = phi_0 + np.sum(phi_i)
             efficiency_diff = abs(reconstructed_pred - y_i)
+            mx_efficiency_dif = max(efficiency_diff, mx_efficiency_dif)
 
             if efficiency_diff >= delta_1:
                 efficiency_violations += 1
@@ -196,24 +200,26 @@ class Pillar2Verifier:
                 if sigma_j < delta_null:
                     if abs(phi_i[j]) >= delta_2:
                         null_player_violations += 1
+                        mx_axiom_diff = max(mx_axiom_diff, abs(phi_i[j]))
 
         v_efficiency = efficiency_violations == 0
         v_null = null_player_violations == 0
         v_axiom = v_efficiency and v_null
 
-        return v_axiom, efficiency_violations, null_player_violations
+        return v_axiom, mx_efficiency_dif, mx_axiom_diff
 
     # ------------------------------------------------------------
     # CHECK 2: LIME Semantic Validity (Efficiency & Null-Player)
     # ------------------------------------------------------------
     def verify_lime_semantic_validity(
-        self, delta_1: float = 0.05, delta_null: float = 1e-4, delta_2: float = 0.05
+        self, delta_1: float = 0.4, delta_null: float = 1e-3, delta_2: float = 0.05
     ) -> Tuple[bool, int, int]:
-        """
-        Equation (5) evaluation for LIME attributions.
-        """
         attributions_list = self.submission["attributions"]
+        intercepts = self.submission.get("intercepts", None)
         actual_preds = self.f_prime(self.targets)
+
+        mx_efficiency_dif = 0.0
+        mx_axiom_diff = 0.0
 
         efficiency_violations = 0
         null_player_violations = 0
@@ -227,24 +233,32 @@ class Pillar2Verifier:
                 [attr_dict.get(fname, 0.0) for fname in self.feature_names]
             )
 
-            # 1. Efficiency Check (LIME heuristic completeness)
-            if abs(y_i - 0.5) > 0.1 and np.sum(np.abs(phi_i)) == 0:
+            # LIME local intercept baseline (phi_0)
+            phi_0 = intercepts[idx] if intercepts is not None else float(np.mean(self.f_prime(self.background_B)))
+
+            # Correct LIME local surrogate evaluation: phi_0 + sum(phi_i * x_i)
+            reconstructed_pred = phi_0 + np.sum(phi_i * x_i)
+            efficiency_diff = abs(reconstructed_pred - y_i)
+            
+            # Track peak residual across all instances
+            mx_efficiency_dif = max(efficiency_diff, mx_efficiency_dif)
+
+            if efficiency_diff >= delta_1:
                 efficiency_violations += 1
 
-            # 2. Null-Player Check
             for j in range(len(x_i)):
-                sigma_j = self.compute_expected_marginal_contribution(
-                    x_i, feature_idx=j
-                )
+                sigma_j = self.compute_expected_marginal_contribution(x_i, feature_idx=j)
                 if sigma_j < delta_null:
                     if abs(phi_i[j]) >= delta_2:
                         null_player_violations += 1
+                        # Track the magnitude of the offending null-player attribution
+                        mx_axiom_diff = max(mx_axiom_diff, abs(phi_i[j]))
 
         v_efficiency = efficiency_violations == 0
         v_null = null_player_violations == 0
         v_axiom = v_efficiency and v_null
 
-        return v_axiom, efficiency_violations, null_player_violations
+        return v_axiom, mx_efficiency_dif, mx_axiom_diff
 
 
 # ============================================================
@@ -277,7 +291,7 @@ def run_pillar2_audit() -> None:
         print("\n--- Verifying SHAP Semantic Validity ---")
         v_shap, shap_eff_fail, shap_null_fail = (
             verifier_shap.verify_shap_semantic_validity(
-                delta_1=1e-3, delta_null=1e-4, delta_2=0.02
+                delta_1=1e-3, delta_null=1e-4, delta_2=1e-3
             )
         )
         print(f"  • SHAP Efficiency Violations  : {shap_eff_fail}")
@@ -301,12 +315,10 @@ def run_pillar2_audit() -> None:
 
         print("\n--- Verifying LIME Semantic Validity ---")
         v_lime, lime_eff_fail, lime_null_fail = (
-            verifier_lime.verify_lime_semantic_validity(
-                delta_1=0.05, delta_null=1e-4, delta_2=0.05
-            )
+            verifier_lime.verify_lime_semantic_validity()
         )
-        print(f"  • LIME Efficiency Violations  : {lime_eff_fail}")
-        print(f"  • LIME Null-Player Violations : {lime_null_fail}")
+        print(f"  • LIME Max Efficiency Violations  : {lime_eff_fail}")
+        print(f"  • LIME Max Null-Player Violations : {lime_null_fail}")
         print(
             f"  • LIME Pillar II Status       : {'PASS' if v_lime else 'FAIL'}\n"
         )

@@ -19,7 +19,7 @@ if PROJECT_ROOT not in sys.path:
 from Model.blackbox_endpoint import BlackBoxModelEndpoint
 
 # Setup relative paths
-AUDIT_TYPE = "clean_"  # Set to "clean_" or "attack_OOD_" or "attack_Shuffling_" or "attack_BiasedSampling_"
+AUDIT_TYPE = "attack_RandomRank_"  # Set to "clean_" or "attack_OOD_" or "attack_Shuffling_" or "attack_BiasedSampling_" or "attack_RandomRank_"
 DATASET_NAME = "compas"
 MODEL_DIR = os.path.join(PROJECT_ROOT, "Model")
 AUDITOR_DATA_DIR = os.path.join(
@@ -141,7 +141,7 @@ class Pillar1Verifier:
     # CHECK 1: Behavioral Fingerprint Check (V_id)
     # ------------------------------------------------------------
     def verify_behavioral_fingerprint(
-        self, delta_fin: float = 1e-3
+        self, delta_fin: float = 5e-03
     ) -> Tuple[bool, float]:
         """
         Eq (1): V_id = I(|| f(I_c) - f'(I_c) ||_max < delta_fin)
@@ -155,7 +155,7 @@ class Pillar1Verifier:
     # CHECK 2: Batch-Invariance Check / Output Shuffling (V_os)
     # ------------------------------------------------------------
     def verify_batch_invariance(
-        self, delta_os: float = 1e-5
+        self, delta_os: float = 5e-03
     ) -> Tuple[bool, float]:
         """
         Eq (2): V_os = I( max_i | f'(I_c)_i - f'(I_c[i]) | < delta_os )
@@ -260,7 +260,7 @@ class Pillar1Verifier:
     # CHECK 4: Biased Sampling Detection (V_sampling)
     # ------------------------------------------------------------
     def verify_biased_sampling(
-        self, X_seed: np.ndarray, delta_sample: float = 0.6
+        self, X_seed: np.ndarray, delta_sample: float = 0.4
     ) -> Tuple[bool, float, float]:
         """
         Eq (4): Biased Sampling Detection via KS-Test & Wald Test

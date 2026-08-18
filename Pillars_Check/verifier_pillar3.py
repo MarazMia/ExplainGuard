@@ -18,7 +18,7 @@ if PROJECT_ROOT not in sys.path:
 from Model.blackbox_endpoint import BlackBoxModelEndpoint
 
 # Setup relative paths
-AUDIT_TYPE = "clean_"  # Set to "clean_" or "attack_OOD_" or "attack_Shuffling_" or "attack_BiasedSampling_"
+AUDIT_TYPE = "attack_RandomRank_"  # Set to "clean_" or "attack_OOD_" or "attack_Shuffling_" or "attack_BiasedSampling_" or "attack_RandomRank_"
 DATASET_NAME = "compas"
 
 MODEL_DIR = os.path.join(PROJECT_ROOT, "Model")
@@ -171,17 +171,81 @@ class Pillar3Verifier:
             x_ablated[idx] = np.mean(self.background_B[:, idx])
         return x_ablated
 
+    # def evaluate_faithfulness_auc(
+    #     self, K: int = 4, M: int = 10, epsilon: float = 0.01
+    # ) -> Tuple[bool, float, float]:
+    #     """
+    #     Equation (6): Evaluates AUC_A vs (AUC_M + epsilon) across all target instances.
+    #     """
+    #     d = self.targets.shape[1]
+    #     K = int(np.round(np.sqrt(d)))
+
+    #     auc_A_list = []
+    #     auc_M_list = []
+
+    #     for idx in range(len(self.targets)):
+    #         x = self.targets[idx]
+    #         phi = self.attributions_matrix[idx]
+    #         y0 = self.f_prime(x.reshape(1, -1))[0]
+
+    #         # ----------------------------------------------------
+    #         # 1. Auditor Ranking AUC (AUC_A)
+    #         # ----------------------------------------------------
+    #         # Rank features by descending magnitude
+    #         auditor_ranking = np.argsort(-np.abs(phi))
+
+    #         delta_A_k = []
+    #         for k in range(1, K + 1):
+    #             top_k_indices = auditor_ranking[:k]
+    #             x_k = self.compute_ablation_instance(x, top_k_indices)
+    #             y_k = self.f_prime(x_k.reshape(1, -1))[0]
+    #             delta_A_k.append(abs(y0 - y_k))
+
+    #         auc_A = float(np.mean(delta_A_k))
+    #         auc_A_list.append(auc_A)
+
+    #         # ----------------------------------------------------
+    #         # 2. Random Baseline AUC (AUC_M)
+    #         # ----------------------------------------------------
+    #         auc_M_j = []
+    #         for _ in range(M):
+    #             random_ranking = np.random.permutation(d)
+    #             delta_M_k = []
+    #             for k in range(1, K + 1):
+    #                 random_k_indices = random_ranking[:k]
+    #                 x_rand_k = self.compute_ablation_instance(x, random_k_indices)
+    #                 y_rand_k = self.f_prime(x_rand_k.reshape(1, -1))[0]
+    #                 delta_M_k.append(abs(y0 - y_rand_k))
+    #             auc_M_j.append(np.mean(delta_M_k))
+
+    #         auc_M = float(np.mean(auc_M_j))
+    #         auc_M_list.append(auc_M)
+
+    #     mean_auc_A = float(np.mean(auc_A_list))
+    #     mean_auc_M = float(np.mean(auc_M_list))
+
+    #     # Verification Rule: V_fidelity = I(AUC_A > AUC_M + epsilon)
+    #     v_fidelity = mean_auc_A > (mean_auc_M + epsilon)
+
+    #     return v_fidelity, mean_auc_A, mean_auc_M
+
     def evaluate_faithfulness_auc(
-        self, K: int = 4, M: int = 10, epsilon: float = 0.01
-    ) -> Tuple[bool, float, float]:
+        self, K: int = 4, M: int = 10, z: float = 1.96
+    ) -> Tuple[bool, float, float, float, float]:
         """
-        Equation (6): Evaluates AUC_A vs (AUC_M + epsilon) across all target instances.
+        Equation (6): Evaluates AUC_A vs (AUC_M + z * sigma_M) across all target instances.
+
+        The threshold derived from the
+        empirical standard deviation (sigma_M) of the random-permutation
+        baseline scores, giving the verification rule a statistical
+        significance interpretation (z-score test).
         """
         d = self.targets.shape[1]
-        K = min(K, d)
+        K = int(np.round(np.sqrt(d)))
 
         auc_A_list = []
         auc_M_list = []
+        all_bar_delta_j = []  # collects every per-permutation score across all instances
 
         for idx in range(len(self.targets)):
             x = self.targets[idx]
@@ -191,7 +255,6 @@ class Pillar3Verifier:
             # ----------------------------------------------------
             # 1. Auditor Ranking AUC (AUC_A)
             # ----------------------------------------------------
-            # Rank features by descending magnitude
             auditor_ranking = np.argsort(-np.abs(phi))
 
             delta_A_k = []
@@ -205,7 +268,7 @@ class Pillar3Verifier:
             auc_A_list.append(auc_A)
 
             # ----------------------------------------------------
-            # 2. Random Baseline AUC (AUC_M)
+            # 2. Random Baseline AUC (AUC_M) + per-permutation scores
             # ----------------------------------------------------
             auc_M_j = []
             for _ in range(M):
@@ -216,7 +279,9 @@ class Pillar3Verifier:
                     x_rand_k = self.compute_ablation_instance(x, random_k_indices)
                     y_rand_k = self.f_prime(x_rand_k.reshape(1, -1))[0]
                     delta_M_k.append(abs(y0 - y_rand_k))
-                auc_M_j.append(np.mean(delta_M_k))
+                bar_delta_j = float(np.mean(delta_M_k))
+                auc_M_j.append(bar_delta_j)
+                all_bar_delta_j.append(bar_delta_j)  # store for global sigma_M
 
             auc_M = float(np.mean(auc_M_j))
             auc_M_list.append(auc_M)
@@ -224,10 +289,28 @@ class Pillar3Verifier:
         mean_auc_A = float(np.mean(auc_A_list))
         mean_auc_M = float(np.mean(auc_M_list))
 
-        # Verification Rule: V_fidelity = I(AUC_A > AUC_M + epsilon)
-        v_fidelity = mean_auc_A > (mean_auc_M + epsilon)
+        N = len(auc_A_list)            # number of instances (Auditor side)
+        n = len(all_bar_delta_j)       # N * M pooled samples (random baseline side)
 
-        return v_fidelity, mean_auc_A, mean_auc_M
+        sigma_A = float(np.std(auc_A_list, ddof=1))          # spread of AUC_A across instances
+        sigma_M = float(np.std(all_bar_delta_j, ddof=1))     # spread of baseline scores
+
+        se_A = sigma_A / np.sqrt(N)
+        se_M = sigma_M / np.sqrt(n)
+        se_diff = np.sqrt(se_A**2 + se_M**2)                 # <-- proper two-sample SE
+
+        delta_fd = mean_auc_A - mean_auc_M
+        threshold = z * se_diff
+
+        v_fidelity = delta_fd >= threshold
+
+        print(f"  • Faithfulness Gap (Δ_fd) : {delta_fd:.4f}")
+        print(f"  • σ_A (N={N})             : {sigma_A:.4f}  |  SE_A  : {se_A:.4f}")
+        print(f"  • σ_M (n={n})             : {sigma_M:.4f}  |  SE_M  : {se_M:.4f}")
+        print(f"  • Combined SE_diff        : {se_diff:.4f}")
+        print(f"  • Threshold (z·SE_diff)   : {threshold:.4f}  (z={z})")
+
+        return v_fidelity, mean_auc_A, mean_auc_M, delta_fd, threshold
 
 
 # ============================================================
@@ -247,6 +330,60 @@ def run_pillar3_audit() -> None:
 
     p3_passed = True
 
+    # # ----------------------------------------------------
+    # # Verify SHAP Submission
+    # # ----------------------------------------------------
+    # if os.path.exists(shap_path):
+    #     print(f"[+] Loading SHAP submission artifact:\n    {shap_path}")
+    #     with open(shap_path, "rb") as f:
+    #         shap_bundle = pickle.load(f)
+
+    #     verifier_shap = Pillar3Verifier(shap_bundle)
+
+    #     print("\n--- Verifying SHAP Feature Faithfulness ---")
+    #     v_shap, shap_auc_A, shap_auc_M = verifier_shap.evaluate_faithfulness_auc(
+    #         K=4, M=10, epsilon=0.01
+    #     )
+    #     print(f"  • SHAP Auditor AUC_A  : {shap_auc_A:.4f}")
+    #     print(f"  • SHAP Random AUC_M   : {shap_auc_M:.4f}")
+    #     print(
+    #         f"  • SHAP Pillar III     : {'PASS' if v_shap else 'FAIL'}\n"
+    #     )
+    #     p3_passed = p3_passed and v_shap
+    # else:
+    #     print(f"[!] File not found: {shap_path}\n")
+
+    # # ----------------------------------------------------
+    # # Verify LIME Submission
+    # # ----------------------------------------------------
+    # if os.path.exists(lime_path):
+    #     print(f"[+] Loading LIME submission artifact:\n    {lime_path}")
+    #     with open(lime_path, "rb") as f:
+    #         lime_bundle = pickle.load(f)
+
+    #     verifier_lime = Pillar3Verifier(lime_bundle)
+
+    #     print("\n--- Verifying LIME Feature Faithfulness ---")
+    #     v_lime, lime_auc_A, lime_auc_M = verifier_lime.evaluate_faithfulness_auc(
+    #         K=4, M=10, epsilon=0.01
+    #     )
+    #     print(f"  • LIME Auditor AUC_A  : {lime_auc_A:.4f}")
+    #     print(f"  • LIME Random AUC_M   : {lime_auc_M:.4f}")
+    #     print(
+    #         f"  • LIME Pillar III     : {'PASS' if v_lime else 'FAIL'}\n"
+    #     )
+    #     p3_passed = p3_passed and v_lime
+    # else:
+    #     print(f"[!] File not found: {lime_path}\n")
+
+    # print("====================================================")
+    # print(
+    #     f" PILLAR III OVERALL AUDIT RESULT: "
+    #     f"{'VERIFIED & TRUSTED [PASS]' if p3_passed else 'REJECTED [FAIL]'}"
+    # )
+    # print("====================================================\n")
+
+
     # ----------------------------------------------------
     # Verify SHAP Submission
     # ----------------------------------------------------
@@ -258,11 +395,12 @@ def run_pillar3_audit() -> None:
         verifier_shap = Pillar3Verifier(shap_bundle)
 
         print("\n--- Verifying SHAP Feature Faithfulness ---")
-        v_shap, shap_auc_A, shap_auc_M = verifier_shap.evaluate_faithfulness_auc(
-            K=4, M=10, epsilon=0.01
+        v_shap, shap_auc_A, shap_auc_M, shap_delta_fd, shap_threshold = (
+            verifier_shap.evaluate_faithfulness_auc(K=4, M=10, z=1.96)
         )
         print(f"  • SHAP Auditor AUC_A  : {shap_auc_A:.4f}")
         print(f"  • SHAP Random AUC_M   : {shap_auc_M:.4f}")
+        print(f"  • SHAP Δ_fd vs τ = δ_M*z      : {shap_delta_fd:.4f} vs {shap_threshold:.4f}")
         print(
             f"  • SHAP Pillar III     : {'PASS' if v_shap else 'FAIL'}\n"
         )
@@ -281,24 +419,18 @@ def run_pillar3_audit() -> None:
         verifier_lime = Pillar3Verifier(lime_bundle)
 
         print("\n--- Verifying LIME Feature Faithfulness ---")
-        v_lime, lime_auc_A, lime_auc_M = verifier_lime.evaluate_faithfulness_auc(
-            K=4, M=10, epsilon=0.01
+        v_lime, lime_auc_A, lime_auc_M, lime_delta_fd, lime_threshold = (
+            verifier_lime.evaluate_faithfulness_auc(K=4, M=10, z=1.96)
         )
         print(f"  • LIME Auditor AUC_A  : {lime_auc_A:.4f}")
         print(f"  • LIME Random AUC_M   : {lime_auc_M:.4f}")
+        print(f"  • LIME Δ_fd vs τ = δ_M*z      : {lime_delta_fd:.4f} vs {lime_threshold:.4f}")
         print(
             f"  • LIME Pillar III     : {'PASS' if v_lime else 'FAIL'}\n"
         )
         p3_passed = p3_passed and v_lime
     else:
         print(f"[!] File not found: {lime_path}\n")
-
-    print("====================================================")
-    print(
-        f" PILLAR III OVERALL AUDIT RESULT: "
-        f"{'VERIFIED & TRUSTED [PASS]' if p3_passed else 'REJECTED [FAIL]'}"
-    )
-    print("====================================================\n")
 
 
 if __name__ == "__main__":

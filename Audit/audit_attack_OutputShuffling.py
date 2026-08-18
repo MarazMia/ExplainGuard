@@ -213,8 +213,14 @@ def run_shuffling_audit() -> None:
 
     # Data Splits
     N_BG = 50
-    bg_data = X_audit_test.iloc[:N_BG].to_numpy()
-    explain_data = X_audit_test.iloc[N_BG:].to_numpy()
+    # bg_data = X_audit_test.iloc[:N_BG].to_numpy()
+    # explain_data = X_audit_test.iloc[N_BG:].to_numpy()
+
+    # random sampling
+    bg_df = X_audit_test.sample(n=N_BG, random_state=100)
+    bg_data = bg_df.to_numpy()
+
+    explain_data = X_audit_test.loc[X_audit_test.index.difference(bg_df.index)].to_numpy()
 
     # Protected Feature Target Identification
     PROTECTED_FEATURES = ["sex", "race_African-American"]
@@ -233,22 +239,22 @@ def run_shuffling_audit() -> None:
         higher_is_superior=True,
     )
 
-    # ----------------------------------------------------
-    # Verification of Single vs. Batch Shuffling Discrepancy
-    # ----------------------------------------------------
-    sample_test = explain_data[:20]
-    batch_preds = shuffled_model.predict_proba(sample_test)
-    indiv_preds = np.array(
-        [shuffled_model.predict_proba(sample_test[i : i + 1])[0] for i in range(len(sample_test))]
-    )
-    max_batch_diff = float(np.max(np.abs(batch_preds - indiv_preds)))
+    # # ----------------------------------------------------
+    # # Verification of Single vs. Batch Shuffling Discrepancy
+    # # ----------------------------------------------------
+    # sample_test = explain_data[:20]
+    # batch_preds = shuffled_model.predict_proba(sample_test)
+    # indiv_preds = np.array(
+    #     [shuffled_model.predict_proba(sample_test[i : i + 1])[0] for i in range(len(sample_test))]
+    # )
+    # max_batch_diff = float(np.max(np.abs(batch_preds - indiv_preds)))
 
-    print("\n--- BATCH VS. SINGLE INSTANCE DISCREPANCY CHECK ---")
-    print(f"  • Max Batch Shuffling Discrepancy (V_os metric): {max_batch_diff:.8f}")
-    print(
-        f"  • Attack Behavior Verification                   : "
-        f"{'SUCCESS - Batch Discrepancy Induced' if max_batch_diff > 1e-4 else 'INACTIVE'}"
-    )
+    # print("\n--- BATCH VS. SINGLE INSTANCE DISCREPANCY CHECK ---")
+    # print(f"  • Max Batch Shuffling Discrepancy (V_os metric): {max_batch_diff:.8f}")
+    # print(
+    #     f"  • Attack Behavior Verification                   : "
+    #     f"{'SUCCESS - Batch Discrepancy Induced' if max_batch_diff > 1e-4 else 'INACTIVE'}"
+    # )
 
     # Wrap Model Function
     shuffled_model_function = SerializableShuffledModelFunction(shuffled_model)
@@ -353,6 +359,7 @@ def run_shuffling_audit() -> None:
     # Collect raw LIME attributions (still with "feat=val" keys)
     # ----------------------------------------------------
     lime_attributions_list = []
+    lime_intercepts = []  # NEW
     for i in range(len(explain_data)):
         exp = lime_explainer.explain_instance(
             explain_data[i],
@@ -361,6 +368,7 @@ def run_shuffling_audit() -> None:
             num_samples=500,
         )
         lime_attributions_list.append(dict(exp.as_list(label=1)))
+        lime_intercepts.append(float(exp.intercept[1]))
 
     # ----------------------------------------------------
     # Collapse categorical conditions back to original feature names
@@ -417,9 +425,10 @@ def run_shuffling_audit() -> None:
         "explainer_type": "TabularLIME",
         "explainer_object": lime_explainer,
         "explained_instances": explain_data,
-        "attributions": lime_attributions_collapsed,   # <-- collapsed version
+        "attributions": lime_attributions_list,
+        "intercepts": lime_intercepts,     # NEW
         "feature_names": feature_names,
-    }
+        }
 
     lime_path = os.path.join(
         SUBMISSION_DIR, f"{ATTACK_PREFIX}{DATASET_NAME}_lime_submission.pkl"

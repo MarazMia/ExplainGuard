@@ -16,3 +16,5 @@ Thumbs.db
 # Generated submission artifacts and audit logs
 Data/Auditor_End/Submissions/*.pkl
 *.log
+*.png
+plot_result.py

@@ -283,8 +283,9 @@ def run_biased_sampling_audit():
 
     # Run Verification KernelSHAP on S1_prime_final background
     explainer_attacked = shap.KernelExplainer(predict_wrapper, S1_prime_final)
+    explain_data = X_pool[:100]
     shap_attacked = explainer_attacked.shap_values(
-        X_pool[:100], nsamples=100
+        explain_data, nsamples=100
     )
     if isinstance(shap_attacked, list):
         shap_attacked = (
@@ -299,16 +300,16 @@ def run_biased_sampling_audit():
     ).sort_values(by="Mean |SHAP|", ascending=False)
     print(summary_df.to_string(index=False))
 
-    # Save Submission Object for Pillar I Audit Inspection
-    serializable_explainer = SerializableKernelExplainer(
+    # Save Submission Object for Pillar Audit Inspection
+    serializable_shap_explainer = SerializableKernelExplainer(
         model_function=predict_wrapper, background_data=S1_prime_final
     )
 
-    submission_pkg = {
+    shap_submission = {
         "explainer_type": "KernelSHAP",
-        "explainer_object": serializable_explainer,
-        "explained_instances": X_pool[:100],
-        "background_data": S1_prime_final,
+        "explainer_object": serializable_shap_explainer,
+        "explained_instances": explain_data,
+        "attributions": shap_attacked,
         "feature_names": feature_names,
     }
 
@@ -316,7 +317,7 @@ def run_biased_sampling_audit():
         SUBMISSION_DIR, f"{ATTACK_PREFIX}{DATASET_NAME}_shap_submission.pkl"
     )
     with open(output_path, "wb") as f:
-        pickle.dump(submission_pkg, f)
+        pickle.dump(shap_submission, f)
 
     print(f"\n[+] Saved Algorithm 3 submission artifact to: {output_path}")
 

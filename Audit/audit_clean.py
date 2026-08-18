@@ -137,10 +137,16 @@ def run_audit_pipeline() -> None:
     X_audit_test = pd.read_csv(audit_path)
     feature_names = X_audit_test.columns.tolist()
 
-    # Split background vs explanation targets
+    # Data Splits
     N_BG = 50
-    bg_data = X_audit_test.iloc[:N_BG].to_numpy()
-    explain_data = X_audit_test.iloc[N_BG:].to_numpy()
+    # bg_data = X_audit_test.iloc[:N_BG].to_numpy()
+    # explain_data = X_audit_test.iloc[N_BG:].to_numpy()
+    
+    # random sampling
+    bg_df = X_audit_test.sample(n=N_BG, random_state=42)
+    bg_data = bg_df.to_numpy()
+
+    explain_data = X_audit_test.loc[X_audit_test.index.difference(bg_df.index)].to_numpy()
 
     print("\n--- DATASET SPLIT SUMMARY ---")
     print(f"  • Total Pool Samples    : {len(X_audit_test)}")
@@ -231,6 +237,8 @@ def run_audit_pipeline() -> None:
     )
 
     lime_attributions_list = []
+    lime_intercepts = []  # NEW
+
     for i in range(len(explain_data)):
         exp = lime_explainer.explain_instance(
             explain_data[i],
@@ -239,6 +247,7 @@ def run_audit_pipeline() -> None:
             num_samples=500,
         )
         lime_attributions_list.append(dict(exp.as_list(label=1)))
+        lime_intercepts.append(float(exp.intercept[1]))  # NEW: per-instance intercept
 
 
     # ----------------------------------------------------
@@ -270,11 +279,12 @@ def run_audit_pipeline() -> None:
 
 
     lime_submission = {
-        "explainer_type": "TabularLIME",
-        "explainer_object": lime_explainer,
-        "explained_instances": explain_data,
-        "attributions": lime_attributions_list,
-        "feature_names": feature_names,
+    "explainer_type": "TabularLIME",
+    "explainer_object": lime_explainer,
+    "explained_instances": explain_data,
+    "attributions": lime_attributions_list,
+    "intercepts": lime_intercepts,     # NEW
+    "feature_names": feature_names,
     }
 
     lime_path = os.path.join(
