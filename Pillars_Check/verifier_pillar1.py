@@ -219,11 +219,38 @@ class Pillar1Verifier:
 
             # 2. In-Distribution Baseline (S_ood / Reference Raw Data)
             # Unperturbed x repeated to compare against explainer perturbation behavior
-            S_ood_x = np.tile(x, (samples_M, 1))
+            # S_ood_x = np.tile(x, (samples_M, 1))
+
+            S_ood_x = np.empty((samples_M, d))
+
+            def choose_feature_subset(d):
+                k = np.random.randint(1, d + 1)
+                return np.random.choice(d, size=k, replace=False)
+
+            for m in range(samples_M):
+                z = x.copy()
+
+                if np.random.choice([3, 4]) == 3:
+                    # Group feature swapping
+                    G = choose_feature_subset(d)
+                    ref_idx = np.random.randint(n)
+                    while np.array_equal(X_seed[ref_idx], x):
+                        ref_idx = np.random.randint(n)
+                    z[G] = X_seed[ref_idx, G]
+                else:
+                    # Gaussian feature noise
+                    I = choose_feature_subset(d)
+                    z[I] = x[I] + np.random.normal(
+                        0, np.sqrt(feature_vars_safe[I]), size=len(I)
+                    )
+                S_ood_x[m] = z
+
+
 
             S_expl_list.append(np.array(S_expl_x))
             S_ood_list.append(S_ood_x)
 
+            
         return S_expl_list, S_ood_list
         
 
