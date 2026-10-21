@@ -76,6 +76,6 @@ Sub-Step 2: Run the Pillar I, II, and III Verification Harness
 <i> python Pillars_Check/verifier_pillar2.py </i> <br>
 <i> python Pillars_Check/verifier_pillar3.py </i> <br>
 
-Please use "attack_<YOU_DESIRED_ATTACK>_" to reproduce the result for that specific attack in each verifier_piller<X>.py script. By default, in each pillar script, "attack_RandomRank_" is used. Sorry for this little inconvenience; in the hurry, we forgot to add this as an argument for the script.
+Please use "attack_<YOU_DESIRED_ATTACK>_" to reproduce the result for that specific attack in each verifier_piller<strong>X</strong>.py script. By default, in each pillar script, "attack_RandomRank_" is used. Sorry for this little inconvenience; in the hurry, we forgot to add this as an argument for the script.
 
 
